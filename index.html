@@ -1,0 +1,716 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pocket Tic-Tac-Toe</title>
+<meta name="description" content="Noughts and crosses on a recreated pocket-handheld LCD screen. Play the computer at three levels or a friend on the same device.">
+<style>
+/* Layout: the LCD alone, sized by script to the largest fit. Tall screens stack the scores, board and
+   buttons; wide, short screens put the board on the left and a panel on the right. */
+:root {
+  --page: #d6d9d2;
+  --page-glow: #eceee8;
+  --bezel: #2f3236;
+  --bezel-edge: #45494e;
+  --hint: #555b52;
+  --hint-strong: #1f231c;
+  --f-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --bz: 16px;   /* bezel thickness */
+  --gl: 12px;   /* glass margin around the canvas */
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #16181a; --page-glow: #24282a; --bezel: #0d0e10; --bezel-edge: #2c3034;
+    --hint: #949a8f; --hint-strong: #e2e5dc; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --page: #16181a; --page-glow: #24282a; --bezel: #0d0e10; --bezel-edge: #2c3034;
+  --hint: #949a8f; --hint-strong: #e2e5dc; color-scheme: dark;
+}
+html, body { height: 100%; margin: 0; }
+body {
+  background: radial-gradient(ellipse 60% 55% at 50% 40%, var(--page-glow), var(--page) 75%) fixed, var(--page);
+  color: var(--hint-strong);
+  font-family: var(--f-ui);
+  overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+.stage {
+  min-height: 100%;
+  box-sizing: border-box;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px;
+  padding-block: 16px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.screen {
+  width: min(100%, 520px);
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: var(--bz);
+  border-radius: 14px;
+  background: linear-gradient(180deg, var(--bezel-edge), var(--bezel) 40px);
+  box-shadow: 0 2px 0 rgba(255,255,255,.08) inset, 0 18px 40px rgba(0,0,0,.28), 0 2px 6px rgba(0,0,0,.2);
+}
+.glass {
+  border-radius: 6px;
+  padding: var(--gl);
+  background: linear-gradient(170deg, #b4c2a4 0%, #a3b493 55%, #97a987 100%);
+  box-shadow: inset 0 3px 8px rgba(0,0,0,.38), inset 0 0 0 2px rgba(0,0,0,.25);
+}
+canvas {
+  display: block; width: 100%; max-width: 100%; aspect-ratio: 240 / 356;
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
+  outline: none;
+}
+.hint {
+  margin: 0; max-width: 620px; text-align: center;
+  font-size: 13px; line-height: 1.5; color: var(--hint);
+  text-wrap: balance;
+}
+.hint b { color: var(--hint-strong); font-weight: 600; }
+@media (max-width: 600px) {
+  :root { --bz: 7px; --gl: 6px; }
+  .stage { padding-block: 10px; }
+  .screen { border-radius: 10px; }
+  .glass { border-radius: 4px; }
+}
+@media (hover: none) and (pointer: coarse) {
+  .hint { display: none; }
+}
+</style>
+</head>
+<body>
+<main class="stage" id="stage">
+  <div class="screen" id="screen">
+    <div class="glass" id="glass"><canvas id="lcd" tabindex="0" role="img" aria-label="Tic-tac-toe screen. Tap a square to place your mark."></canvas></div>
+  </div>
+  <p class="hint" id="hint"><b>Arrows / WASD</b> move · <b>Enter / Space</b> place · <b>1–9</b> pick a square (number-pad layout) · <b>N</b> new round · <b>Esc</b> menu · <b>M</b> sound<br>Or just click the squares and the buttons on the screen.</p>
+</main>
+
+<script>
+(() => {
+  'use strict';
+
+  // ---------- pixel font (3x5, variable width) ----------
+  const FONT_SRC = {
+    'A': '010 101 111 101 101', 'B': '110 101 110 101 110', 'C': '011 100 100 100 011',
+    'D': '110 101 101 101 110', 'E': '111 100 110 100 111', 'F': '111 100 110 100 100',
+    'G': '011 100 101 101 011', 'H': '101 101 111 101 101', 'I': '111 010 010 010 111',
+    'J': '001 001 001 101 010', 'K': '101 101 110 101 101', 'L': '100 100 100 100 111',
+    'M': '10001 11011 10101 10001 10001', 'N': '1001 1101 1011 1001 1001',
+    'O': '010 101 101 101 010', 'P': '110 101 110 100 100', 'Q': '010 101 101 110 011',
+    'R': '110 101 110 101 101', 'S': '011 100 010 001 110', 'T': '111 010 010 010 010',
+    'U': '101 101 101 101 111', 'V': '101 101 101 101 010', 'W': '10001 10001 10101 11011 10001',
+    'X': '101 101 010 101 101', 'Y': '101 101 010 010 010', 'Z': '111 001 010 100 111',
+    '0': '111 101 101 101 111', '1': '010 110 010 010 111', '2': '110 001 010 100 111',
+    '3': '110 001 010 001 110', '4': '101 101 111 001 001', '5': '111 100 110 001 110',
+    '6': '011 100 111 101 111', '7': '111 001 010 010 010', '8': '111 101 111 101 111',
+    '9': '111 101 111 001 110', ' ': '00 00 00 00 00', '!': '1 1 1 0 1', '.': '0 0 0 0 1',
+    ':': '0 1 0 1 0', '-': '000 000 111 000 000', '<': '001 010 100 010 001',
+    '>': '100 010 001 010 100', '?': '110 001 010 000 010', '/': '001 001 010 100 100'
+  };
+  const FONT = {};
+  for (const k in FONT_SRC) FONT[k] = FONT_SRC[k].split(' ');
+  const textCols = (s) => [...s].reduce((w, ch) => w + (FONT[ch] || FONT[' '])[0].length + 1, 0) - 1;
+
+  // ---------- board glyphs (7x7 dots inside each 9x9 square) ----------
+  const GLYPH = {
+    1: ['1100011', '1110111', '0111110', '0011100', '0111110', '1110111', '1100011'],  // X
+    2: ['0111110', '1111111', '1100011', '1100011', '1100011', '1111111', '0111110'],  // O
+  };
+  const NOTE = ['0001100', '0001110', '0001011', '0001001', '0001000', '0111000', '1111000', '0110000'];
+  const N = 29;               // board matrix is 29x29 dots: three 9-dot squares and two 1-dot lines
+  const LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+  const LEVELS = ['EASY', 'MEDIUM', 'HARD'];
+
+  // ---------- layouts (logical units) ----------
+  const LAYOUTS = {
+    tall: {
+      W: 240, H: 356,
+      board: { x: 10, y: 62, s: 220 },
+      scores: [{ cx: 42, y: 10 }, { cx: 120, y: 10 }, { cx: 198, y: 10 }],
+      digit: [11, 22, 3, 17], scoreGap: 14,
+      msg: { cx: 120, y: 293, px: 2.4 },
+      buttons: { menu: [10, 316, 84, 32], sound: [100, 316, 40, 32], fresh: [146, 316, 84, 32] },
+      title: { cx: 120, y: 14, px: 3.6 },
+      sub: { cx: 120, y: 42, px: 1.6 },
+      rows: { x: 14, y: 70, w: 212, h: 44, gap: 9 },
+      demo: null,
+    },
+    wide: {
+      W: 420, H: 250,
+      board: { x: 10, y: 10, s: 230 },
+      scores: [{ cx: 280, y: 14 }, { cx: 333, y: 14 }, { cx: 386, y: 14 }],
+      digit: [10, 20, 2.8, 16], scoreGap: 13,
+      msg: { cx: 333, y: 112, px: 2.0 },
+      buttons: { menu: [254, 194, 64, 44], sound: [324, 194, 24, 44], fresh: [354, 194, 56, 44] },
+      title: { cx: 333, y: 14, px: 2.6 },
+      sub: { cx: 333, y: 36, px: 1.4 },
+      rows: { x: 254, y: 52, w: 156, h: 32, gap: 6 },
+      demo: true,
+    },
+  };
+  let L = LAYOUTS.tall;
+
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+  };
+  const KEY = 'pocket-tictactoe-v1';
+
+  // ---------- state ----------
+  const S = {
+    mode: 'boot', t0: 0,
+    players: 1, level: 1, sound: true, tallies: {},
+    board: new Array(9).fill(0), placedAt: new Array(9).fill(0),
+    turn: 1, starter: 1, result: null, resultAt: 0, cpuAt: 0,
+    cursor: 4, kbd: false, live: false, config: '',
+    menuSel: 4, flash: null,
+    demo: null,
+  };
+
+  try {
+    const saved = JSON.parse(store.get(KEY) || 'null');
+    if (saved) {
+      if (saved.players === 1 || saved.players === 2) S.players = saved.players;
+      if (saved.level >= 0 && saved.level <= 2) S.level = saved.level | 0;
+      if (typeof saved.sound === 'boolean') S.sound = saved.sound;
+      if (saved.tallies && typeof saved.tallies === 'object') {
+        for (const k of ['1P0', '1P1', '1P2', '2P']) {
+          const t = saved.tallies[k];
+          if (Array.isArray(t) && t.length === 3) S.tallies[k] = t.map(n => Math.max(0, Math.min(99, n | 0)));
+        }
+      }
+    }
+  } catch {}
+  const save = () => store.set(KEY, JSON.stringify({ players: S.players, level: S.level, sound: S.sound, tallies: S.tallies }));
+  const configKey = () => S.players === 1 ? '1P' + S.level : '2P';
+  const tally = () => (S.tallies[configKey()] ||= [0, 0, 0]);
+
+  // ---------- rules and computer player ----------
+  function outcome(b) {
+    for (const line of LINES) {
+      const [a, c, d] = line;
+      if (b[a] && b[a] === b[c] && b[a] === b[d]) return { w: b[a], line };
+    }
+    return b.every(Boolean) ? { w: 0, line: null } : null;
+  }
+  const empties = (b) => b.reduce((a, v, i) => (v ? a : (a.push(i), a)), []);
+  const pick = (arr) => arr[(Math.random() * arr.length) | 0];
+
+  function finishing(b, who) {
+    for (const i of empties(b)) { b[i] = who; const r = outcome(b); b[i] = 0; if (r && r.w === who) return i; }
+    return -1;
+  }
+  function minimax(b, who, me, depth) {
+    const r = outcome(b);
+    if (r) return r.w === 0 ? 0 : (r.w === me ? 10 - depth : depth - 10);
+    let best = who === me ? -99 : 99;
+    for (const i of empties(b)) {
+      b[i] = who;
+      const v = minimax(b, 3 - who, me, depth + 1);
+      b[i] = 0;
+      best = who === me ? Math.max(best, v) : Math.min(best, v);
+    }
+    return best;
+  }
+  function bestMoves(b, me) {
+    let best = -99, moves = [];
+    for (const i of empties(b)) {
+      b[i] = me;
+      const v = minimax(b, 3 - me, me, 1);
+      b[i] = 0;
+      if (v > best) { best = v; moves = [i]; } else if (v === best) moves.push(i);
+    }
+    return moves;
+  }
+  function cpuMove(b, me, level) {
+    b = b.slice();
+    const free = empties(b);
+    const win = finishing(b, me), block = finishing(b, 3 - me);
+    if (level === 0) {
+      if (win >= 0 && Math.random() < 0.6) return win;
+      if (block >= 0 && Math.random() < 0.35) return block;
+      return pick(free);
+    }
+    if (level === 1) {
+      if (win >= 0) return win;
+      if (block >= 0) return block;
+      if (Math.random() < 0.45) {
+        const pref = [4, 0, 2, 6, 8].filter(i => !b[i]);
+        return Math.random() < 0.6 && pref.length ? pick(pref) : pick(free);
+      }
+      return pick(bestMoves(b, me));
+    }
+    return pick(bestMoves(b, me));
+  }
+
+  // ---------- game flow ----------
+  const humanTurn = () => !S.result && (S.players === 2 || S.turn === 1);
+
+  function newRound(alternate) {
+    if (alternate) S.starter = 3 - S.starter;
+    S.board.fill(0); S.placedAt.fill(0);
+    S.turn = S.starter; S.result = null;
+    S.live = true; S.config = configKey();
+    S.mode = 'play';
+    scheduleCpu();
+  }
+  function scheduleCpu() {
+    S.cpuAt = (S.players === 1 && S.turn === 2 && !S.result) ? performance.now() + 420 + Math.random() * 380 : 0;
+  }
+  function place(i) {
+    if (S.board[i] || S.result) return false;
+    const who = S.turn;
+    S.board[i] = who; S.placedAt[i] = performance.now();
+    if (S.players === 1 && who === 2) sfx.cpu(); else sfx.place(who);
+    const r = outcome(S.board);
+    if (r) {
+      S.result = r; S.resultAt = performance.now(); S.cpuAt = 0;
+      const t = tally();
+      if (r.w === 0) t[1] = Math.min(99, t[1] + 1);
+      else if (r.w === 1) t[0] = Math.min(99, t[0] + 1);
+      else t[2] = Math.min(99, t[2] + 1);
+      save();
+      if (r.w === 0) sfx.draw();
+      else if (S.players === 1 && r.w === 2) sfx.lose();
+      else sfx.win();
+      return true;
+    }
+    S.turn = 3 - who;
+    scheduleCpu();
+    return true;
+  }
+  function tryHumanPlace(i) {
+    if (S.result) { if (performance.now() - S.resultAt > 350) { newRound(true); sfx.start(); } return; }
+    if (!humanTurn()) return;
+    if (S.board[i]) { sfx.nope(); return; }
+    place(i);
+  }
+
+  function toMenu() { S.mode = 'menu'; S.menuSel = 4; S.cpuAt = 0; S.demo = null; sfx.blip(700); }
+  function leaveMenu() {
+    if (S.live && S.config === configKey()) { S.mode = 'play'; scheduleCpu(); }
+    else { S.starter = 1; newRound(false); }
+    sfx.start();
+  }
+  function menuChange(row, dir) {
+    if (row === 0) { S.players = 3 - S.players; }
+    else if (row === 1) { if (S.players === 2) { sfx.nope(); return; } S.level = (S.level + dir + 3) % 3; }
+    else if (row === 2) { S.sound = !S.sound; }
+    else if (row === 3) { S.tallies[configKey()] = [0, 0, 0]; S.flash = { row: 3, t: performance.now() }; }
+    else if (row === 4) { leaveMenu(); return; }
+    save(); sfx.blip(row === 3 ? 500 : 1000);
+  }
+  function toggleSound() { S.sound = !S.sound; save(); sfx.blip(1200); }
+
+  // ---------- sound ----------
+  let ac = null;
+  function ensureAudio() {
+    if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch { ac = null; } }
+    if (ac && ac.state === 'suspended') ac.resume().catch(() => {});
+  }
+  function tone(freq, at, dur, vol = 0.05) {
+    if (!S.sound || !ac || ac.state !== 'running') return;
+    const t = ac.currentTime + at;
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = 'square'; o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(ac.destination);
+    o.start(t); o.stop(t + dur + 0.02);
+  }
+  const seq = (notes, step, vol) => notes.forEach((f, i) => f && tone(f, i * step, step * 0.9, vol));
+  const sfx = {
+    blip: (f = 1000) => tone(f, 0, 0.035, 0.035),
+    move: () => tone(900, 0, 0.022, 0.025),
+    nope: () => seq([220, 180], 0.06, 0.04),
+    place: (who) => who === 1 ? seq([1320, 1760], 0.035, 0.04) : seq([880, 660], 0.035, 0.04),
+    cpu: () => seq([700, 520], 0.04, 0.04),
+    start: () => seq([523, 659, 784, 1047], 0.07, 0.045),
+    win: () => seq([0, 0, 784, 988, 1175, 1568, 0, 1568], 0.08, 0.045),
+    lose: () => seq([0, 0, 659, 587, 523, 392, 0, 262], 0.11, 0.05),
+    draw: () => seq([0, 0, 660, 0, 660], 0.09, 0.04),
+  };
+
+  // ---------- sizing ----------
+  const canvas = document.getElementById('lcd');
+  const stage = document.getElementById('stage');
+  const screenEl = document.getElementById('screen');
+  const glassEl = document.getElementById('glass');
+  const hintEl = document.getElementById('hint');
+  const ctx = canvas.getContext('2d');
+  let scale = 1;
+  const cssPx = (el, prop) => parseFloat(getComputedStyle(el)[prop]) || 0;
+
+  function resizeBacking() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
+    const cw = canvas.clientWidth || L.W;
+    canvas.width = Math.round(cw * dpr);
+    canvas.height = Math.round(cw * dpr * L.H / L.W);
+    scale = canvas.width / L.W;
+  }
+  // Pick the layout that gives the bigger board, then the biggest screen that fits without scrolling.
+  function fit() {
+    const viewH = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    const avW = stage.clientWidth - cssPx(stage, 'paddingLeft') - cssPx(stage, 'paddingRight');
+    const hintH = getComputedStyle(hintEl).display === 'none' ? 0 : hintEl.offsetHeight + cssPx(stage, 'rowGap');
+    const avH = viewH - cssPx(stage, 'paddingTop') - cssPx(stage, 'paddingBottom') - hintH;
+    const frame = 2 * (cssPx(screenEl, 'paddingLeft') + cssPx(glassEl, 'paddingLeft'));
+    const cw = avW - frame, ch = avH - frame;
+    const boardPx = (l) => Math.min(cw / l.W, ch / l.H, 2.4) * l.board.s;
+    L = boardPx(LAYOUTS.wide) > boardPx(LAYOUTS.tall) * 1.08 ? LAYOUTS.wide : LAYOUTS.tall;
+    const s = Math.max(0.5, Math.min(cw / L.W, ch / L.H, 2.4));
+    canvas.style.aspectRatio = `${L.W} / ${L.H}`;
+    screenEl.style.width = Math.floor(L.W * s + frame) + 'px';
+    resizeBacking();
+  }
+  new ResizeObserver(resizeBacking).observe(canvas);
+  window.addEventListener('resize', fit);
+  window.visualViewport?.addEventListener('resize', fit);
+  fit();
+
+  // ---------- input ----------
+  const inRect = (x, y, r) => x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3];
+  function rowRect(i) { const r = L.rows; return [r.x, r.y + i * (r.h + r.gap), r.w, r.h]; }
+  function cellAt(x, y) {
+    const b = L.board, pad = 4;
+    if (x < b.x - pad || y < b.y - pad || x >= b.x + b.s + pad || y >= b.y + b.s + pad) return -1;
+    const c = Math.max(0, Math.min(2, Math.floor((x - b.x) / (b.s / 3))));
+    const r = Math.max(0, Math.min(2, Math.floor((y - b.y) / (b.s / 3))));
+    return r * 3 + c;
+  }
+
+  canvas.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    ensureAudio();
+    S.kbd = false;
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width * L.W;
+    const y = (e.clientY - rect.top) / rect.height * L.H;
+    if (S.mode === 'boot') { toMenu(); return; }
+    if (S.mode === 'menu') {
+      for (let i = 0; i < 5; i++) {
+        const r = rowRect(i);
+        if (inRect(x, y, [r[0], r[1] - L.rows.gap / 2, r[2], r[3] + L.rows.gap])) { S.menuSel = i; menuChange(i, 1); return; }
+      }
+      return;
+    }
+    const B = L.buttons;
+    if (inRect(x, y, B.menu)) { toMenu(); return; }
+    if (inRect(x, y, B.sound)) { toggleSound(); return; }
+    if (inRect(x, y, B.fresh)) { newRound(!!S.result); sfx.start(); return; }
+    const c = cellAt(x, y);
+    if (c >= 0) { S.cursor = c; tryHumanPlace(c); }
+    else if (S.result) tryHumanPlace(0);
+  });
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  const NUMPAD = { 7: 0, 8: 1, 9: 2, 4: 3, 5: 4, 6: 5, 1: 6, 2: 7, 3: 8 };
+  window.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const k = e.key;
+    const dir = { ArrowUp: 'up', w: 'up', W: 'up', ArrowDown: 'down', s: 'down', S: 'down',
+                  ArrowLeft: 'left', a: 'left', A: 'left', ArrowRight: 'right', d: 'right', D: 'right' }[k];
+    const ok = k === 'Enter' || k === ' ';
+    const handled = dir || ok || /^[1-9]$/.test(k) || ['Escape', 'Backspace', 'm', 'M', 'n', 'N'].includes(k);
+    if (!handled) return;
+    e.preventDefault();
+    ensureAudio();
+    if (k === 'm' || k === 'M') { toggleSound(); return; }
+    if (S.mode === 'boot') { toMenu(); return; }
+    if (S.mode === 'menu') {
+      if (dir === 'up' || dir === 'down') { S.menuSel = (S.menuSel + (dir === 'up' ? 4 : 1)) % 5; sfx.move(); }
+      else if (dir === 'left' || dir === 'right') { if (S.menuSel < 3) menuChange(S.menuSel, dir === 'left' ? -1 : 1); }
+      else if (ok) menuChange(S.menuSel, 1);
+      else if ((k === 'Escape' || k === 'Backspace') && S.live) leaveMenu();
+      return;
+    }
+    if (k === 'Escape' || k === 'Backspace') { toMenu(); return; }
+    if (k === 'n' || k === 'N') { newRound(!!S.result); sfx.start(); return; }
+    if (dir) {
+      S.kbd = true;
+      if (S.result) return;
+      const c = S.cursor % 3, r = (S.cursor / 3) | 0;
+      if (dir === 'left') S.cursor = r * 3 + (c + 2) % 3;
+      if (dir === 'right') S.cursor = r * 3 + (c + 1) % 3;
+      if (dir === 'up') S.cursor = ((r + 2) % 3) * 3 + c;
+      if (dir === 'down') S.cursor = ((r + 1) % 3) * 3 + c;
+      sfx.move();
+      return;
+    }
+    if (ok) { S.kbd = true; tryHumanPlace(S.cursor); return; }
+    const c = NUMPAD[k];
+    if (c !== undefined) { S.cursor = c; tryHumanPlace(c); }
+  });
+
+  // ---------- rendering ----------
+  const INK = 'rgba(20,28,16,0.9)';
+  const SHADOW = 'rgba(20,30,10,0.16)';
+  const GHOST = 'rgba(25,40,10,0.075)';
+  let pass = 'ghost';
+  const show = (lit) => pass === 'ghost' || lit;
+  const printed = () => pass !== 'ghost';
+
+  function pixText(str, x, y, p, lit = true, align = 'center') {
+    if (!lit || !printed()) return;
+    const w = textCols(str) * p;
+    let cx = align === 'center' ? x - w / 2 : align === 'right' ? x - w : x;
+    const d = p * 0.88;
+    for (const ch of str) {
+      const g = FONT[ch] || FONT[' '];
+      for (let r = 0; r < 5; r++) for (let c = 0; c < g[r].length; c++)
+        if (g[r][c] === '1') ctx.fillRect(cx + c * p, y + r * p, d, d);
+      cx += (g[0].length + 1) * p;
+    }
+  }
+
+  const SEGS = { '0': 'abcdef', '1': 'bc', '2': 'abged', '3': 'abgcd', '4': 'fgbc', '5': 'afgcd', '6': 'afgedc', '7': 'abc', '8': 'abcdefg', '9': 'abcdfg', ' ': '' };
+  function hseg(x0, x1, y, t) {
+    ctx.beginPath();
+    ctx.moveTo(x0, y); ctx.lineTo(x0 + t / 2, y - t / 2); ctx.lineTo(x1 - t / 2, y - t / 2);
+    ctx.lineTo(x1, y); ctx.lineTo(x1 - t / 2, y + t / 2); ctx.lineTo(x0 + t / 2, y + t / 2);
+    ctx.closePath(); ctx.fill();
+  }
+  function vseg(x, y0, y1, t) {
+    ctx.beginPath();
+    ctx.moveTo(x, y0); ctx.lineTo(x + t / 2, y0 + t / 2); ctx.lineTo(x + t / 2, y1 - t / 2);
+    ctx.lineTo(x, y1); ctx.lineTo(x - t / 2, y1 - t / 2); ctx.lineTo(x - t / 2, y0 + t / 2);
+    ctx.closePath(); ctx.fill();
+  }
+  function digit(x, y, ch, w, h, t) {
+    const on = pass === 'ghost' ? SEGS['8'] : SEGS[ch] || '';
+    if (!on) return;
+    const gp = t * 0.4, m = y + h / 2;
+    ctx.save();
+    ctx.translate(x, y + h); ctx.transform(1, 0, -0.1, 1, 0, 0); ctx.translate(-x, -(y + h));
+    if (on.includes('a')) hseg(x + gp, x + w - gp, y, t);
+    if (on.includes('g')) hseg(x + gp, x + w - gp, m, t);
+    if (on.includes('d')) hseg(x + gp, x + w - gp, y + h, t);
+    if (on.includes('f')) vseg(x, y + gp, m - gp, t);
+    if (on.includes('b')) vseg(x + w, y + gp, m - gp, t);
+    if (on.includes('e')) vseg(x, m + gp, y + h - gp, t);
+    if (on.includes('c')) vseg(x + w, m + gp, y + h - gp, t);
+    ctx.restore();
+  }
+  function number2(cx, y, n, lit = true) {
+    const [w, h, t, sp] = L.digit;
+    const s = lit ? String(n).padStart(2, ' ') : '  ';
+    const x0 = cx - (sp + w) / 2;
+    digit(x0, y, s[0], w, h, t);
+    digit(x0 + sp, y, s[1], w, h, t);
+  }
+
+  function frameRect(r, thick = 1.6, radius = 5) {
+    if (!printed()) return;
+    const [x, y, w, h] = r;
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(x, y, w, h, radius) : ctx.rect(x, y, w, h);
+    ctx.roundRect ? ctx.roundRect(x + thick, y + thick, w - 2 * thick, h - 2 * thick, Math.max(0, radius - thick)) : ctx.rect(x + thick, y + thick, w - 2 * thick, h - 2 * thick);
+    ctx.fill('evenodd');
+  }
+  function noteIcon(cx, cy, p, lit) {
+    if (!show(lit)) return;
+    const x0 = cx - 3.5 * p, y0 = cy - 4 * p, d = p * 0.88;
+    NOTE.forEach((row, r) => [...row].forEach((ch, c) => { if (ch === '1') ctx.fillRect(x0 + c * p, y0 + r * p, d, d); }));
+  }
+
+  // Build the 29x29 dot matrix for a board position.
+  function boardMatrix(b, placedAt, result, now, opts = {}) {
+    const g = new Uint8Array(N * N);
+    const set = (x, y) => { g[y * N + x] = 1; };
+    for (let i = 0; i < N; i++) { set(9, i); set(19, i); set(i, 9); set(i, 19); }
+    const win = result && result.line ? new Set(result.line) : null;
+    const since = result ? now - opts.resultAt : 0;
+    const blinkOff = result && since < 2400 ? Math.floor(since / 220) % 2 === 1 : false;
+    for (let k = 0; k < 9; k++) {
+      const who = b[k];
+      const ox = (k % 3) * 10 + 1, oy = ((k / 3) | 0) * 10 + 1;
+      if (who) {
+        if (blinkOff && (win ? win.has(k) : true)) continue;
+        if (result && win && !win.has(k) && since >= 2400) continue;  // after the blink, keep just the winning line
+        const age = now - placedAt[k];
+        const rows = age < 140 ? Math.ceil(age / 20) : 7;
+        const gl = GLYPH[who];
+        for (let r = 0; r < rows; r++) for (let c = 0; c < 7; c++) if (gl[r][c] === '1') set(ox + c, oy + r);
+      } else if (opts.preview === k && Math.floor(now / 380) % 2 === 0) {
+        const gl = GLYPH[opts.previewWho];
+        for (let r = 0; r < 7; r++) for (let c = 0; c < 7; c++) if (gl[r][c] === '1' && (r + c) % 2 === 0) set(ox + c, oy + r);
+      }
+      if (opts.cursor === k && Math.floor(now / 260) % 2 === 0) {
+        const x0 = ox - 1, y0 = oy - 1;
+        for (const [dx, dy] of [[0,0],[1,0],[0,1],[8,0],[7,0],[8,1],[0,8],[1,8],[0,7],[8,8],[7,8],[8,7]]) set(x0 + dx, y0 + dy);
+      }
+    }
+    if (result && result.w && since >= 2400 && win) {
+      // strike the winning line through its dots after the blink
+      const [a, , c] = result.line;
+      const ax = (a % 3) * 10 + 4, ay = ((a / 3) | 0) * 10 + 4, cx = (c % 3) * 10 + 4, cy = ((c / 3) | 0) * 10 + 4;
+      const steps = Math.max(Math.abs(cx - ax), Math.abs(cy - ay));
+      for (let s = -3; s <= steps + 3; s++) {
+        const x = Math.round(ax + (cx - ax) * s / steps), y = Math.round(ay + (cy - ay) * s / steps);
+        if (x >= 0 && y >= 0 && x < N && y < N) set(x, y);
+      }
+    }
+    return g;
+  }
+  function drawMatrix(g, bx, by, size) {
+    const p = size / N, d = p * 0.86;
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++)
+      if (show(g[y * N + x])) ctx.fillRect(bx + x * p, by + y * p, d, d);
+  }
+
+  function statusText(now) {
+    if (S.result) {
+      const phase = Math.floor((now - S.resultAt) / 1100) % 2;
+      if (phase === 1 && now - S.resultAt > 1100) return 'TAP FOR NEXT';
+      if (S.result.w === 0) return 'DRAW!';
+      if (S.players === 1) return S.result.w === 1 ? 'YOU WIN!' : 'CPU WINS';
+      return (S.result.w === 1 ? 'X' : 'O') + ' WINS!';
+    }
+    if (S.players === 1) {
+      if (S.turn === 2) return 'CPU' + '.'.repeat(1 + Math.floor(now / 250) % 3);
+      return 'YOUR MOVE';
+    }
+    return (S.turn === 1 ? 'X' : 'O') + ' TO MOVE';
+  }
+
+  function scenePlay(now) {
+    const m = boardMatrix(S.board, S.placedAt, S.result, now, {
+      resultAt: S.resultAt,
+      cursor: S.kbd && !S.result && humanTurn() ? S.cursor : -1,
+      preview: S.kbd && !S.result && humanTurn() && !S.board[S.cursor] ? S.cursor : -1,
+      previewWho: S.turn,
+    });
+    drawMatrix(m, L.board.x, L.board.y, L.board.s);
+
+    const labels = S.players === 1 ? ['YOU', 'TIE', 'CPU'] : ['X', 'TIE', 'O'];
+    const t = tally();
+    L.scores.forEach((sc, i) => {
+      pixText(labels[i], sc.cx, sc.y, 1.6);
+      number2(sc.cx, sc.y + L.scoreGap, t[i]);
+    });
+    // which mark is to move, under the score of that side
+    if (!S.result) {
+      const who = S.turn === 1 ? 0 : 2;
+      L.scores.forEach((sc, i) => { if (i !== 1) pixText(i === 0 ? '>' : '<', sc.cx + (i === 0 ? -26 : 26), sc.y + L.scoreGap + 7, 1.6, i === who); });
+    }
+    if (L === LAYOUTS.wide) pixText(S.players === 1 ? 'VS CPU ' + LEVELS[S.level] : '2 PLAYERS', L.msg.cx, 80, 1.4);
+    else pixText(S.players === 1 ? 'VS CPU ' + LEVELS[S.level] : '2 PLAYERS', 120, 48, 1.3);
+
+    const msg = statusText(now);
+    if (L === LAYOUTS.wide && msg === 'TAP FOR NEXT') {
+      pixText('TAP FOR', L.msg.cx, L.msg.y, L.msg.px); pixText('NEXT', L.msg.cx, L.msg.y + 14, L.msg.px);
+    } else pixText(msg, L.msg.cx, L.msg.y, L.msg.px);
+    // in the wide panel, a big glyph shows whose move it is
+    if (L === LAYOUTS.wide) {
+      const who = S.result ? S.result.w : S.turn;
+      if (who) {
+        const p = 4, x0 = L.msg.cx - 3.5 * p, y0 = 146;
+        const blink = S.result ? Math.floor(now / 300) % 2 === 0 : true;
+        for (let r = 0; r < 7; r++) for (let c = 0; c < 7; c++)
+          if (show(blink && GLYPH[who][r][c] === '1')) ctx.fillRect(x0 + c * p, y0 + r * p, p * 0.86, p * 0.86);
+      }
+    }
+
+    const B = L.buttons;
+    frameRect(B.menu); pixText('MENU', B.menu[0] + B.menu[2] / 2, B.menu[1] + B.menu[3] / 2 - 5, 2);
+    frameRect(B.sound); noteIcon(B.sound[0] + B.sound[2] / 2, B.sound[1] + B.sound[3] / 2, L === LAYOUTS.wide ? 2 : 2.6, S.sound);
+    frameRect(B.fresh); pixText(S.result ? 'NEXT' : 'NEW', B.fresh[0] + B.fresh[2] / 2, B.fresh[1] + B.fresh[3] / 2 - 5, 2);
+  }
+
+  function sceneMenu(now) {
+    pixText('TIC TAC TOE', L.title.cx, L.title.y, L.title.px);
+    pixText('POCKET LCD EDITION', L.sub.cx, L.sub.y, L.sub.px);
+    const items = [
+      ['PLAYERS', S.players === 1 ? '1 VS CPU' : '2'],
+      ['LEVEL', S.players === 1 ? LEVELS[S.level] : '-'],
+      ['SOUND', S.sound ? 'ON' : 'OFF'],
+      ['SCORES', S.flash && now - S.flash.t < 900 ? 'CLEARED' : 'CLEAR'],
+      [S.live && S.config === configKey() ? 'RESUME' : 'START', ''],
+    ];
+    const wide = L === LAYOUTS.wide;
+    const p = wide ? 1.7 : 2.2;
+    items.forEach(([label, val], i) => {
+      const r = rowRect(i);
+      frameRect(r, i === 4 ? 2.6 : 1.4, 5);
+      const ty = r[1] + r[3] / 2 - 2.5 * p;
+      const sel = S.menuSel === i && (S.kbd || i === 4);
+      const arrow = sel && Math.floor(now / 300) % 2 === 0;
+      if (i === 4) {
+        pixText(label, r[0] + r[2] / 2, ty, p * 1.2);
+        pixText('>', r[0] + 10, ty, p * 1.2, arrow, 'left');
+        pixText('<', r[0] + r[2] - 10, ty, p * 1.2, arrow, 'right');
+      } else {
+        pixText(label, r[0] + 12, ty, p, true, 'left');
+        pixText(val, r[0] + r[2] - 12, ty, p, true, 'right');
+        pixText('>', r[0] + 4, ty, p, sel && arrow, 'left');
+      }
+    });
+    if (wide) {
+      // attract mode: the computer plays itself on the board
+      const d = S.demo;
+      drawMatrix(boardMatrix(d.board, d.placedAt, d.result, now, { resultAt: d.resultAt }), L.board.x, L.board.y, L.board.s);
+    }
+  }
+
+  function sceneBoot(now) {
+    const all = new Uint8Array(N * N).fill(1);
+    drawMatrix(all, L.board.x, L.board.y, L.board.s);
+    L.scores.forEach(sc => number2(sc.cx, sc.y + L.scoreGap, 88, true));
+    if (printed()) {
+      const B = L.buttons;
+      frameRect(B.menu); frameRect(B.sound); frameRect(B.fresh);
+    }
+    noteIcon(L.buttons.sound[0] + L.buttons.sound[2] / 2, L.buttons.sound[1] + L.buttons.sound[3] / 2, 2.4, true);
+  }
+
+  function scene(now) {
+    if (S.mode === 'boot') sceneBoot(now);
+    else if (S.mode === 'menu') sceneMenu(now);
+    else scenePlay(now);
+  }
+
+  function draw(now) {
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    pass = 'ghost'; ctx.fillStyle = GHOST; scene(now);
+    pass = 'shadow'; ctx.save(); ctx.translate(1.3, 1.5); ctx.fillStyle = SHADOW; scene(now); ctx.restore();
+    pass = 'ink'; ctx.fillStyle = INK; scene(now);
+  }
+
+  // ---------- loop ----------
+  function tickDemo(now) {
+    if (!S.demo) S.demo = { board: new Array(9).fill(0), placedAt: new Array(9).fill(0), turn: 1, next: now + 600, result: null, resultAt: 0 };
+    const d = S.demo;
+    if (now < d.next) return;
+    if (d.result) { S.demo = null; return; }
+    const i = empties(d.board).length === 9 ? pick([0, 2, 4, 6, 8]) : cpuMove(d.board, d.turn, 1);
+    d.board[i] = d.turn; d.placedAt[i] = now;
+    const r = outcome(d.board);
+    if (r) { d.result = r; d.resultAt = now; d.next = now + 3600; }
+    else { d.turn = 3 - d.turn; d.next = now + 650; }
+  }
+
+  function frame(now) {
+    if (S.mode === 'boot' && now - S.t0 > 900) { S.mode = 'menu'; S.menuSel = 4; }
+    if (S.mode === 'menu' && L === LAYOUTS.wide) tickDemo(now);
+    if (S.mode === 'play' && S.cpuAt && now >= S.cpuAt) {
+      S.cpuAt = 0;
+      if (S.players === 1 && S.turn === 2 && !S.result) place(cpuMove(S.board, 2, S.level));
+    }
+    draw(now);
+    requestAnimationFrame(frame);
+  }
+  S.t0 = performance.now();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
