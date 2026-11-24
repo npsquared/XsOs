@@ -112,7 +112,7 @@ canvas {
     '6': '011 100 111 101 111', '7': '111 001 010 010 010', '8': '111 101 111 101 111',
     '9': '111 101 111 001 110', ' ': '00 00 00 00 00', '!': '1 1 1 0 1', '.': '0 0 0 0 1',
     ':': '0 1 0 1 0', '-': '000 000 111 000 000', '<': '001 010 100 010 001',
-    '>': '100 010 001 010 100', '?': '110 001 010 000 010', '/': '001 001 010 100 100'
+    '>': '100 010 001 010 100', '?': '110 001 010 000 010', '/': '001 001 010 100 100', "'": '1 1 0 0 0'
   };
   const FONT = {};
   for (const k in FONT_SRC) FONT[k] = FONT_SRC[k].split(' ');
@@ -138,7 +138,7 @@ canvas {
       msg: { cx: 120, y: 293, px: 2.4 },
       buttons: { menu: [10, 316, 84, 32], sound: [100, 316, 40, 32], fresh: [146, 316, 84, 32] },
       title: { cx: 120, y: 14, px: 3.6 },
-      sub: { cx: 120, y: 42, px: 1.6 },
+      sub: { cx: 120, y: 40, px: 2.6 },
       rows: { x: 14, y: 70, w: 212, h: 44, gap: 9 },
       demo: null,
     },
@@ -150,7 +150,7 @@ canvas {
       msg: { cx: 333, y: 112, px: 2.0 },
       buttons: { menu: [254, 194, 64, 44], sound: [324, 194, 24, 44], fresh: [354, 194, 56, 44] },
       title: { cx: 333, y: 14, px: 2.6 },
-      sub: { cx: 333, y: 36, px: 1.4 },
+      sub: { cx: 333, y: 33, px: 1.9 },
       rows: { x: 254, y: 52, w: 156, h: 32, gap: 6 },
       demo: true,
     },
@@ -625,8 +625,8 @@ canvas {
   }
 
   function sceneMenu(now) {
-    pixText('TIC TAC TOE', L.title.cx, L.title.y, L.title.px);
-    pixText('POCKET LCD EDITION', L.sub.cx, L.sub.y, L.sub.px);
+    pixText("NOOMI'S", L.title.cx, L.title.y, L.title.px);
+    pixText('TIC TAC TOE', L.sub.cx, L.sub.y, L.sub.px);
     const items = [
       ['PLAYERS', S.players === 1 ? '1 VS CPU' : '2'],
       ['LEVEL', S.players === 1 ? LEVELS[S.level] : '-'],

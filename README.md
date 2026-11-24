@@ -1,4 +1,4 @@
-# XsOs: Pocket Tic-Tac-Toe
+# XsOs: Noomi's Tic Tac Toe
 
 Noughts and crosses drawn on a recreation of an old pocket-handheld LCD screen: a dot-matrix board, seven-segment score digits and square-wave beeps.
 
